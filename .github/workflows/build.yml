@@ -1,0 +1,185 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ created ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Run tests
+        run: sbt test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/test-reports/
+
+  build-jar:
+    name: Build Universal JAR
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Build assembly JAR
+        run: sbt assembly
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bleeding-edge-jar
+          path: target/scala-3.6.2/bleeding-edge-assembly-*.jar
+          retention-days: 7
+
+  package-linux:
+    name: Package for Linux (Debian)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm fakeroot
+
+      - name: Build Debian package
+        run: sbt debian:packageBin
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: bleeding-edge-deb
+          path: target/bleeding-edge_*.deb
+          retention-days: 7
+
+  package-macos:
+    name: Package for macOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Install SBT
+        run: brew install sbt
+
+      - name: Build universal package
+        run: sbt universal:packageBin
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: bleeding-edge-macos
+          path: target/universal/bleeding-edge-*.zip
+          retention-days: 7
+
+  package-windows:
+    name: Package for Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
+
+      - name: Build Windows MSI
+        run: sbt windows:packageBin
+        shell: bash
+
+      - name: Build universal ZIP
+        run: sbt universal:packageBin
+        shell: bash
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: bleeding-edge-windows
+          path: |
+            target/windows/bleeding-edge-*.msi
+            target/universal/bleeding-edge-*.zip
+          retention-days: 7
+
+  release:
+    name: Create Release Assets
+    needs: [build-jar, package-linux, package-macos, package-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Upload JAR to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/bleeding-edge-jar/*.jar
+
+      - name: Upload Debian package to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/bleeding-edge-deb/*.deb
+
+      - name: Upload macOS package to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/bleeding-edge-macos/*.zip
+
+      - name: Upload Windows packages to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/bleeding-edge-windows/*.msi
+            artifacts/bleeding-edge-windows/*.zip
