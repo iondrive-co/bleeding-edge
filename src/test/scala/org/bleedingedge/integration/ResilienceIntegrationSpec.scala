@@ -11,9 +11,9 @@
 
 package org.bleedingedge.integration
 
+import org.bleedingedge.infrastructure.resilience.*
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.{NetworkManager, PeerInfo}
-import org.bleedingedge.resilience.*
-import org.bleedingedge.scheduling.Scheduler
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 

@@ -11,7 +11,7 @@
 
 package org.bleedingedge.network
 
-import org.bleedingedge.scheduling.Scheduler
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 

@@ -11,10 +11,10 @@
 
 package org.bleedingedge.integration
 
-import org.bleedingedge.daemon.DaemonManager
+import org.bleedingedge.infrastructure.daemon.DaemonManager
+import org.bleedingedge.infrastructure.resilience.*
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.NetworkManager
-import org.bleedingedge.resilience.*
-import org.bleedingedge.scheduling.Scheduler
 import org.bleedingedge.sync.SyncManager
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers

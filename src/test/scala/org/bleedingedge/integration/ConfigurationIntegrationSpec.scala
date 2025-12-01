@@ -11,9 +11,9 @@
 
 package org.bleedingedge.integration
 
-import org.bleedingedge.config.BleedingEdgeConfig
+import org.bleedingedge.infrastructure.config.BleedingEdgeConfig
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.NetworkManager
-import org.bleedingedge.scheduling.Scheduler
 import org.bleedingedge.sync.SyncManager
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers

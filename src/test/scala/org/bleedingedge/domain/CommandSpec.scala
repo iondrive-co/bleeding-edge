@@ -11,10 +11,12 @@
 
 package org.bleedingedge.domain
 
+import org.bleedingedge.resource.CommandExecutor
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path, Paths}
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Success, Try}
 
 class CommandSpec extends AnyFlatSpec with Matchers:
@@ -36,13 +38,14 @@ class CommandSpec extends AnyFlatSpec with Matchers:
       val sourceFile = tempDir.resolve("source.txt")
       Files.write(sourceFile, "test content".getBytes)
 
-      // The bug was using 'from' twice instead of 'from' and 'to'
-      // This test verifies the fix works correctly
+      // Commands are now pure data - use CommandExecutor to execute them
+      val executor = CommandExecutor.withoutRetry(tempDir)
       val command = MoveCommand("source.txt", "destination.txt")
-      val result = command.apply(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
-      Files.exists(tempDir.resolve("destination.txt/source.txt")) shouldBe true
+      Files.exists(tempDir.resolve("destination.txt")) shouldBe true
+      Files.exists(sourceFile) shouldBe false
     }
   }
 
@@ -53,7 +56,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
       Files.write(file, "content".getBytes)
 
       val command = DeleteCommand("to-delete.txt")
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
       Files.exists(file) shouldBe false
@@ -63,7 +67,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
   it should "succeed even if file doesn't exist" in {
     withTempDir { tempDir =>
       val command = DeleteCommand("nonexistent.txt")
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
     }
@@ -73,7 +78,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
     withTempDir { tempDir =>
       val content = "new file content".getBytes
       val command = CreateCommand("newfile.txt", () => content)
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
       val createdFile = tempDir.resolve("newfile.txt")
@@ -89,7 +95,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
       Files.write(file, "existing content".getBytes)
 
       val command = CreateCommand("existing.txt", () => "new content".getBytes)
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isFailure shouldBe true
     }
@@ -103,7 +110,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
 
       val newContent = "updated content".getBytes
       val command = UpdateCommand("update-me.txt", () => newContent)
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
       Files.readAllBytes(file) shouldBe newContent
@@ -114,7 +122,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
     withTempDir { tempDir =>
       val content = "new content".getBytes
       val command = UpdateCommand("new-file.txt", () => content)
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
       val file = tempDir.resolve("new-file.txt")
@@ -126,7 +135,8 @@ class CommandSpec extends AnyFlatSpec with Matchers:
   "DoNothingCommand" should "always succeed without side effects" in {
     withTempDir { tempDir =>
       val command = DoNothingCommand
-      val result = command.apply(tempDir)
+      val executor = CommandExecutor.withoutRetry(tempDir)
+      val result = executor.execute(command)
 
       result.isSuccess shouldBe true
     }

@@ -73,10 +73,13 @@ daemon {
 - Configurable daemon mode for background operation
 - Health monitoring and status checks
 
-### Layer 0: Scheduler
-- Manages thread pool and task execution
-- Provides `ExecutionContext` for async operations
-- Graceful shutdown with timeout handling
+### Layer 0: Infrastructure
+- `Scheduler`: Thread pool and task execution, `ExecutionContext` for async operations, graceful shutdown with timeout handling
+- `RetryPolicy`: Exponential backoff with jitter for transient failures
+- `CircuitBreaker`: Three-state pattern (Closed/Open/HalfOpen) for fault isolation
+- `HealthCheck`: System health monitoring
+- `BleedingEdgeConfig`: HOCON-based configuration management
+- `DaemonManager`: PID file management and background operation
 
 ### Layer 1: Application (CLI)
 - Command-line interface for user interaction
@@ -84,7 +87,8 @@ daemon {
 - Daemon mode support
 
 ### Layer 2: Resource
-- `FileSystemMonitor`: Watches directories for changes using Java NIO WatchService
+- `FileSystemMonitor`: Monitors directories for changes and performs initial scanning
+- `CommandExecutor`: Executes filesystem commands (Create, Update, Move, Delete)
 - Detects file creation, modification, and deletion
 - Non-blocking, event-driven design
 
@@ -94,25 +98,23 @@ daemon {
 - Produces commands for remote peers
 
 ### Layer 4: Codec
-- `Serialization`: Encodes/decodes snapshots and commands
+- `Serialization`: Encodes/decodes all protocol messages
+- Handles NetworkMessage, LocationState, and Command serialization
 - Binary protocol for efficient transmission
 - Tail-recursive for stack safety
 
 ### Layer 5: Network
-- `NetworkManager`: Handles peer connections
-- TCP-based peer-to-peer communication
-- Automatic peer discovery via multicast
+- `NetworkManager`: Handles peer connections with resilience
+- `PeerConnection`: TCP-based peer communication
+- `PeerDiscovery`: Automatic peer discovery via multicast
 - Connection pooling and management
+- Integrated circuit breakers and retry logic
 
 ### Layer 6: Sync
-- `SyncManager`: Orchestrates synchronization
+- `SyncManager`: Orchestrates synchronization across all layers
 - Coordinates resource monitoring, state transformation, and network communication
+- Health monitoring and status reporting
 - Ensures consistency across peers
-
-### Resilience Layer
-- `RetryPolicy`: Exponential backoff with jitter
-- `CircuitBreaker`: Three-state pattern (Closed/Open/HalfOpen)
-- `HealthCheck`: System health monitoring
 
 ### Data Model
 

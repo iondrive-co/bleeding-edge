@@ -1,19 +1,10 @@
-/*
- * Copyright (c) 2012, 2025 Miles Hampson
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- *
- * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package org.bleedingedge.codec
 
 import org.bleedingedge.domain.{LocationState, MessageType, ResourceId}
+import org.bleedingedge.network.NetworkMessage
 
-import java.io.{ByteArrayOutputStream, DataOutputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream, DataOutputStream}
+import java.util.UUID
 import scala.annotation.tailrec
 
 /**
@@ -35,7 +26,7 @@ object Serialization:
   /**
    * Converts a list of LocationStates to a byte array.
    *
-   * Each state is serialized using LocationState.toBytes and concatenated.
+   * Each state is serialized and concatenated.
    *
    * @param states List of LocationStates to serialize
    * @return Concatenated byte array
@@ -44,7 +35,7 @@ object Serialization:
     if states.isEmpty then
       Array.empty[Byte]
     else
-      states.map(LocationState.toBytes).reduce(_ ++ _)
+      states.map(encodeLocationState).reduce(_ ++ _)
 
   /**
    * Converts a byte array to a list of LocationStates (tail-recursive).
@@ -59,8 +50,8 @@ object Serialization:
     if bytes.isEmpty then
       List.empty
     else
-      import java.io.{ByteArrayInputStream, DataInputStream, EOFException}
-      import scala.util.{Failure, Success, Try}
+      import java.io.{ByteArrayInputStream, DataInputStream}
+      import scala.util.Try
 
       val inStream = ByteArrayInputStream(bytes)
       val inBuffer = DataInputStream(inStream)
@@ -106,7 +97,7 @@ object Serialization:
     val byteLookup = (hostname: String, hash: String, length: Int) =>
       Array.empty[Byte] // Placeholder
 
-    LocationState.fromBytes(bytes, startPos, byteLookup)
+    decodeLocationState(bytes, startPos, byteLookup)
 
   /**
    * Calculates the serialized size of a LocationState.
@@ -165,3 +156,243 @@ object Serialization:
    */
   def estimateSize(states: List[LocationState]): Int =
     states.map(calculateStateSize).sum
+
+  // ========== NetworkMessage Serialization ==========
+
+  /**
+   * Serializes a NetworkMessage to bytes.
+   *
+   * @param message The NetworkMessage to serialize
+   * @return Serialized bytes
+   */
+  def encodeNetworkMessage(message: NetworkMessage): Array[Byte] =
+    val outStream = ByteArrayOutputStream()
+    val out = DataOutputStream(outStream)
+
+    message match
+      case NetworkMessage.Hello(peerId, hostname) =>
+        out.writeByte(0)
+        out.writeLong(peerId.getMostSignificantBits)
+        out.writeLong(peerId.getLeastSignificantBits)
+        out.writeUTF(hostname)
+
+      case NetworkMessage.Goodbye(peerId) =>
+        out.writeByte(1)
+        out.writeLong(peerId.getMostSignificantBits)
+        out.writeLong(peerId.getLeastSignificantBits)
+
+      case NetworkMessage.StateBroadcast(states) =>
+        out.writeByte(2)
+        out.writeInt(states.length)
+        out.write(states)
+
+      case NetworkMessage.StateRequest(hostname, resourceHash, resourceLength) =>
+        out.writeByte(3)
+        out.writeUTF(hostname)
+        out.writeUTF(resourceHash)
+        out.writeInt(resourceLength)
+
+      case NetworkMessage.Heartbeat(timestamp) =>
+        out.writeByte(4)
+        out.writeLong(timestamp)
+
+      case NetworkMessage.Acknowledgment(messageId) =>
+        out.writeByte(5)
+        out.writeLong(messageId.getMostSignificantBits)
+        out.writeLong(messageId.getLeastSignificantBits)
+
+    out.flush()
+    outStream.toByteArray
+
+  /**
+   * Deserializes a NetworkMessage from bytes.
+   *
+   * @param bytes The bytes to deserialize
+   * @return Deserialized NetworkMessage
+   */
+  def decodeNetworkMessage(bytes: Array[Byte]): NetworkMessage =
+    val in = DataInputStream(ByteArrayInputStream(bytes))
+
+    val messageType = in.readByte()
+    messageType match
+      case 0 => // Hello
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val peerId = UUID(mostSig, leastSig)
+        val hostname = in.readUTF()
+        NetworkMessage.Hello(peerId, hostname)
+
+      case 1 => // Goodbye
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val peerId = UUID(mostSig, leastSig)
+        NetworkMessage.Goodbye(peerId)
+
+      case 2 => // StateBroadcast
+        val length = in.readInt()
+        val states = Array.ofDim[Byte](length)
+        in.readFully(states)
+        NetworkMessage.StateBroadcast(states)
+
+      case 3 => // StateRequest
+        val hostname = in.readUTF()
+        val resourceHash = in.readUTF()
+        val resourceLength = in.readInt()
+        NetworkMessage.StateRequest(hostname, resourceHash, resourceLength)
+
+      case 4 => // Heartbeat
+        val timestamp = in.readLong()
+        NetworkMessage.Heartbeat(timestamp)
+
+      case 5 => // Acknowledgment
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val messageId = UUID(mostSig, leastSig)
+        NetworkMessage.Acknowledgment(messageId)
+
+      case unknown =>
+        throw java.io.IOException(s"Unknown message type: $unknown")
+
+  /**
+   * Reads a NetworkMessage from an existing DataInputStream.
+   * Used for continuous streaming deserialization.
+   *
+   * @param in The DataInputStream to read from
+   * @return Deserialized NetworkMessage
+   */
+  def readNetworkMessage(in: DataInputStream): NetworkMessage =
+    val messageType = in.readByte()
+    messageType match
+      case 0 => // Hello
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val peerId = UUID(mostSig, leastSig)
+        val hostname = in.readUTF()
+        NetworkMessage.Hello(peerId, hostname)
+
+      case 1 => // Goodbye
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val peerId = UUID(mostSig, leastSig)
+        NetworkMessage.Goodbye(peerId)
+
+      case 2 => // StateBroadcast
+        val length = in.readInt()
+        val states = Array.ofDim[Byte](length)
+        in.readFully(states)
+        NetworkMessage.StateBroadcast(states)
+
+      case 3 => // StateRequest
+        val hostname = in.readUTF()
+        val resourceHash = in.readUTF()
+        val resourceLength = in.readInt()
+        NetworkMessage.StateRequest(hostname, resourceHash, resourceLength)
+
+      case 4 => // Heartbeat
+        val timestamp = in.readLong()
+        NetworkMessage.Heartbeat(timestamp)
+
+      case 5 => // Acknowledgment
+        val mostSig = in.readLong()
+        val leastSig = in.readLong()
+        val messageId = UUID(mostSig, leastSig)
+        NetworkMessage.Acknowledgment(messageId)
+
+      case unknown =>
+        throw java.io.IOException(s"Unknown message type: $unknown")
+
+  /**
+   * Writes a NetworkMessage to an existing DataOutputStream.
+   * Used for continuous streaming serialization.
+   *
+   * @param out The DataOutputStream to write to
+   * @param message The NetworkMessage to write
+   */
+  def writeNetworkMessage(out: DataOutputStream, message: NetworkMessage): Unit =
+    message match
+      case NetworkMessage.Hello(peerId, hostname) =>
+        out.writeByte(0)
+        out.writeLong(peerId.getMostSignificantBits)
+        out.writeLong(peerId.getLeastSignificantBits)
+        out.writeUTF(hostname)
+
+      case NetworkMessage.Goodbye(peerId) =>
+        out.writeByte(1)
+        out.writeLong(peerId.getMostSignificantBits)
+        out.writeLong(peerId.getLeastSignificantBits)
+
+      case NetworkMessage.StateBroadcast(states) =>
+        out.writeByte(2)
+        out.writeInt(states.length)
+        out.write(states)
+
+      case NetworkMessage.StateRequest(hostname, resourceHash, resourceLength) =>
+        out.writeByte(3)
+        out.writeUTF(hostname)
+        out.writeUTF(resourceHash)
+        out.writeInt(resourceLength)
+
+      case NetworkMessage.Heartbeat(timestamp) =>
+        out.writeByte(4)
+        out.writeLong(timestamp)
+
+      case NetworkMessage.Acknowledgment(messageId) =>
+        out.writeByte(5)
+        out.writeLong(messageId.getMostSignificantBits)
+        out.writeLong(messageId.getLeastSignificantBits)
+
+    out.flush()
+
+  // ========== LocationState Serialization (moved from Domain) ==========
+
+  /**
+   * Serializes a single LocationState to bytes.
+   * Moved from LocationState companion object to centralize all codec logic.
+   *
+   * @param state The LocationState to serialize
+   * @return Serialized bytes
+   */
+  def encodeLocationState(state: LocationState): Array[Byte] =
+    val outStream = ByteArrayOutputStream()
+    val outBuffer = DataOutputStream(outStream)
+
+    outBuffer.writeShort(MessageType.StateBroadcast.ordinal)
+    outBuffer.writeUTF(state.location)
+    outBuffer.writeInt(state.resourceId.originalLength)
+    outBuffer.writeUTF(state.resourceId.resourceHash)
+    outBuffer.writeUTF(java.net.InetAddress.getLocalHost.getHostName)
+
+    // Include actual file content
+    val content = state.getBytes
+    outBuffer.writeInt(content.length)
+    outBuffer.write(content)
+
+    outStream.toByteArray
+
+  /**
+   * Deserializes a single LocationState from bytes.
+   * Moved from LocationState companion object to centralize all codec logic.
+   *
+   * @param bytes The serialized bytes
+   * @param startReadPos Starting position in the byte array
+   * @param byteLookup Function to retrieve bytes given (hostname, hash, length)
+   * @return Deserialized LocationState
+   */
+  def decodeLocationState(
+    bytes: Array[Byte],
+    startReadPos: Int,
+    byteLookup: (String, String, Int) => Array[Byte]
+  ): LocationState =
+    val inStream = ByteArrayInputStream(bytes, startReadPos, bytes.length)
+    val inBuffer = DataInputStream(inStream)
+
+    val msgType = inBuffer.readShort()
+    val location = inBuffer.readUTF()
+    val length = inBuffer.readInt()
+    val hash = inBuffer.readUTF()
+    val hostname = inBuffer.readUTF()
+
+    val resourceId = ResourceId(hash, length)
+    val lookup = () => byteLookup(hostname, hash, length)
+
+    LocationState(location, resourceId, Some(lookup))

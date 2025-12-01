@@ -43,7 +43,7 @@ class SerializationSpec extends AnyFlatSpec with Matchers:
 
     bytes.length should be > 0
     // Should be concatenation of all states
-    bytes.length.shouldBe(states.map(LocationState.toBytes).map(_.length).sum)
+    bytes.length.shouldBe(states.map(Serialization.encodeLocationState).map(_.length).sum)
   }
 
   "Serialization.bytesToStates" should "deserialize empty array to empty list" in {
@@ -54,7 +54,7 @@ class SerializationSpec extends AnyFlatSpec with Matchers:
 
   it should "deserialize single state (tail-recursive)" in {
     val originalState = LocationState("/file1", "content1".getBytes)
-    val bytes = LocationState.toBytes(originalState)
+    val bytes = Serialization.encodeLocationState(originalState)
 
     val states = Serialization.bytesToStates(bytes)
 
@@ -170,7 +170,7 @@ class SerializationSpec extends AnyFlatSpec with Matchers:
 
     estimatedSize should be > 0
     // Should be approximately the size of the serialized state
-    val actualSize = LocationState.toBytes(state).length
+    val actualSize = Serialization.encodeLocationState(state).length
     // Estimate should be close to actual (within reasonable bounds)
     estimatedSize should be > (actualSize - 50)
     estimatedSize should be < (actualSize + 50)
@@ -191,7 +191,7 @@ class SerializationSpec extends AnyFlatSpec with Matchers:
 
   "Serialization.bytesToState" should "deserialize state at offset 0" in {
     val originalState = LocationState("/test", "data".getBytes)
-    val bytes = LocationState.toBytes(originalState)
+    val bytes = Serialization.encodeLocationState(originalState)
 
     val deserializedState = Serialization.bytesToState(bytes, 0)
 

@@ -4,8 +4,8 @@
 
 package org.bleedingedge.integration
 
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.NetworkManager
-import org.bleedingedge.scheduling.Scheduler
 import org.bleedingedge.sync.SyncManager
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.funsuite.AnyFunSuite

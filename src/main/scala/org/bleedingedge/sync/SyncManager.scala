@@ -1,22 +1,11 @@
-/*
- * Copyright (c) 2025 Miles Hampson
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- *
- * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package org.bleedingedge.sync
 
 import com.typesafe.scalalogging.LazyLogging
 import org.bleedingedge.codec.Serialization
 import org.bleedingedge.domain.{Command, LocationState, Snapshot}
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.{NetworkManager, NetworkMessage, PeerInfo}
-import org.bleedingedge.resource.FileSystemMonitor
-import org.bleedingedge.scheduling.Scheduler
+import org.bleedingedge.resource.{CommandExecutor, FileSystemMonitor}
 import org.bleedingedge.transposition.StateTransformer
 
 import java.nio.file.Path
@@ -55,6 +44,7 @@ class SyncManager(
   private val accumulatedStates = scala.collection.mutable.ListBuffer[LocationState]()
   private var networkManager: Option[NetworkManager] = None
   private var monitorFuture: Option[Future[Unit]] = None
+  private val commandExecutor = CommandExecutor(basePath)(using scheduler.executionContext)
 
   given scala.concurrent.ExecutionContext = scheduler.executionContext
 
@@ -141,51 +131,25 @@ class SyncManager(
         handleAcknowledgment(peer, messageId)
 
   /**
-   * Initializes the current snapshot from the file system.
+   * Initializes the current snapshot from the file system using FileSystemMonitor.
    */
   private def initializeSnapshot(): Unit =
-    Try {
-      import org.bleedingedge.domain.ResourceId
+    val monitor = FileSystemMonitor(scheduler)
+    monitor.scanDirectory(basePath) match
+      case scala.util.Success(states) =>
+        val snapshot = if states.isEmpty then
+          Snapshot.empty
+        else
+          StateTransformer.statesToSnapshots(states).lastOption.getOrElse(Snapshot.empty)
 
-      import java.nio.file.attribute.BasicFileAttributes
-      import java.nio.file.{Files, Path}
-      import scala.jdk.StreamConverters.*
+        currentSnapshot.set(snapshot)
+        logger.info(s"Initialized snapshot with ${states.size} files from $basePath")
+        if states.nonEmpty then
+          logger.info(s"Files in snapshot: ${states.map(_.location).mkString(", ")}")
 
-      logger.info(s"Scanning directory: $basePath")
-
-      // Scan directory and build initial states
-      val states = if Files.exists(basePath) && Files.isDirectory(basePath) then
-        Files.walk(basePath)
-          .toScala(LazyList)
-          .filter(p => Files.isRegularFile(p))
-          .filter(p => !p.toString.contains(".bleedingedge")) // Skip config directory
-          .flatMap { filePath =>
-            Try {
-              val relativePath = basePath.relativize(filePath).toString
-              val content = Files.readAllBytes(filePath)
-              LocationState(relativePath, content)
-            }.toOption
-          }
-          .toList
-      else
-        // Directory doesn't exist yet, start with empty
-        List.empty[LocationState]
-
-      // Convert states to snapshot
-      val snapshot = if states.isEmpty then
-        Snapshot.empty
-      else
-        StateTransformer.statesToSnapshots(states).lastOption.getOrElse(Snapshot.empty)
-
-      currentSnapshot.set(snapshot)
-      logger.info(s"Initialized snapshot with ${states.size} files from $basePath")
-      if states.nonEmpty then
-        logger.info(s"Files in snapshot: ${states.map(_.location).mkString(", ")}")
-    }.recover {
-      case e: Exception =>
+      case scala.util.Failure(e) =>
         logger.error("Failed to initialize snapshot", e)
         currentSnapshot.set(Snapshot.empty)
-    }
 
   /**
    * Handles a file system change event.
@@ -353,11 +317,12 @@ class SyncManager(
     // Could track message delivery here
 
   /**
-   * Applies a list of commands to the local file system.
+   * Applies a list of commands using CommandExecutor from the Resource layer.
    */
   private def applyCommands(commands: List[Command]): Unit =
-    commands.foreach { command =>
-      command.apply(basePath) match
+    val results = commandExecutor.executeAll(commands)
+    results.zip(commands).foreach { case (result, command) =>
+      result match
         case scala.util.Success(_) =>
           logger.debug(s"Applied command: ${command.getClass.getSimpleName}")
         case scala.util.Failure(e) =>

@@ -13,8 +13,8 @@ package org.bleedingedge.sync
 
 import org.bleedingedge.codec.Serialization
 import org.bleedingedge.domain.{LocationState, Snapshot}
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 import org.bleedingedge.network.{NetworkManager, NetworkMessage, PeerInfo}
-import org.bleedingedge.scheduling.Scheduler
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 

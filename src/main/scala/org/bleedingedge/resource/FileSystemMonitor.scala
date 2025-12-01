@@ -1,19 +1,8 @@
-/*
- * Copyright (c) 2012, 2025 Miles Hampson
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- *
- * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package org.bleedingedge.resource
 
 import com.typesafe.scalalogging.LazyLogging
 import org.bleedingedge.domain.LocationState
-import org.bleedingedge.scheduling.Scheduler
+import org.bleedingedge.infrastructure.scheduling.Scheduler
 
 import java.io.{BufferedInputStream, File, FileInputStream}
 import java.nio.file.*
@@ -27,6 +16,12 @@ import scala.util.{Try, Using}
  * This replaces the old Resource protocol with modern, non-blocking file monitoring
  * that uses callbacks instead of Scala Actors.
  *
+ * Features:
+ * - Initial directory scanning
+ * - Continuous change monitoring
+ * - Recursive directory watching
+ * - Automatic cleanup
+ *
  * Improvements over original:
  * - Uses scala.jdk.CollectionConverters instead of deprecated JavaConversions
  * - Callback-based instead of Actor-based
@@ -39,6 +34,80 @@ import scala.util.{Try, Using}
  */
 class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
 
+  given scala.concurrent.ExecutionContext = scheduler.executionContext
+
+  /**
+   * Performs an initial scan of a directory and returns all files as LocationStates.
+   *
+   * This method scans the directory tree and creates LocationState objects for all
+   * regular files found. It does not start monitoring - use scanAndMonitorDirectory
+   * for continuous monitoring.
+   *
+   * @param basePath The directory to scan
+   * @param excludePattern Optional pattern to exclude files/directories (e.g., ".bleedingedge")
+   * @return List of LocationStates representing all files in the directory
+   */
+  def scanDirectory(
+    basePath: Path,
+    excludePattern: String = ".bleedingedge"
+  ): Try[List[LocationState]] = Try {
+    import scala.jdk.StreamConverters.*
+
+    logger.info(s"Scanning directory: $basePath")
+
+    if !Files.exists(basePath) then
+      logger.warn(s"Directory does not exist: $basePath")
+      List.empty
+    else if !Files.isDirectory(basePath) then
+      logger.warn(s"Path is not a directory: $basePath")
+      List.empty
+    else
+      val states = Files.walk(basePath)
+        .toScala(LazyList)
+        .filter(p => Files.isRegularFile(p))
+        .filter(p => !p.toString.contains(excludePattern))
+        .flatMap { filePath =>
+          Try {
+            val relativePath = basePath.relativize(filePath).toString
+            val content = Files.readAllBytes(filePath)
+            LocationState(relativePath, content)
+          }.toOption
+        }
+        .toList
+
+      logger.info(s"Scanned ${states.size} files from $basePath")
+      states
+  }
+
+  /**
+   * Performs an initial scan and then monitors for changes.
+   *
+   * Calls the onChange callback with each file from the initial scan, then
+   * continues calling it for any detected changes.
+   *
+   * @param basePath The directory to scan and monitor
+   * @param onChange Callback invoked for each file state (initial + changes)
+   * @param excludePattern Optional pattern to exclude files/directories
+   * @return Future that completes when monitoring stops
+   */
+  def scanAndMonitorDirectory(
+    basePath: Path,
+    onChange: LocationState => Unit,
+    excludePattern: String = ".bleedingedge"
+  ): Future[Unit] = Future {
+    // Perform initial scan
+    scanDirectory(basePath, excludePattern) match
+      case scala.util.Success(states) =>
+        logger.info(s"Reporting ${states.size} initial files")
+        states.foreach(onChange)
+
+      case scala.util.Failure(e) =>
+        logger.error(s"Failed to scan directory: ${e.getMessage}", e)
+
+    // Start monitoring for changes (blocks until stopped)
+    scanDirectoryForChanges(basePath, onChange).value.get.get
+  }
+
   /**
    * Scans a directory and monitors it for changes, invoking the callback for each change.
    *
@@ -50,8 +119,6 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
     dirPath: Path,
     onChange: LocationState => Unit
   ): Future[Unit] =
-    given scala.concurrent.ExecutionContext = scheduler.executionContext
-
     scheduler.execute("file-monitor") {
       Using.resource(FileSystems.getDefault.newWatchService()) { watcher =>
         var watchKeys = Map.empty[WatchKey, Path]

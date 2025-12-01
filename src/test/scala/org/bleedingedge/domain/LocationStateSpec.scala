@@ -11,6 +11,7 @@
 
 package org.bleedingedge.domain
 
+import org.bleedingedge.codec.Serialization
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -85,11 +86,11 @@ class LocationStateSpec extends AnyFlatSpec with Matchers:
     val originalBytes = "test content".getBytes
     val originalState = LocationState("/test/path.txt", originalBytes)
 
-    val serialized = LocationState.toBytes(originalState)
+    val serialized = Serialization.encodeLocationState(originalState)
     serialized should not be empty
 
     val byteLookup = (host: String, hash: String, length: Int) => originalBytes
-    val deserialized = LocationState.fromBytes(serialized, 0, byteLookup)
+    val deserialized = Serialization.decodeLocationState(serialized, 0, byteLookup)
 
     deserialized.location shouldBe originalState.location
     deserialized.resourceId shouldBe originalState.resourceId

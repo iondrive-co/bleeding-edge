@@ -23,6 +23,11 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+        with:
+          sbt-version: '1.10.5'
+
       - name: Run tests
         run: sbt test
 
@@ -48,6 +53,11 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+        with:
+          sbt-version: '1.10.5'
+
       - name: Build assembly JAR
         run: sbt assembly
 
@@ -72,6 +82,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: 'sbt'
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+        with:
+          sbt-version: '1.10.5'
 
       - name: Install packaging tools
         run: |
@@ -103,8 +118,10 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
-      - name: Install SBT
-        run: brew install sbt
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+        with:
+          sbt-version: '1.10.5'
 
       - name: Build universal package
         run: sbt universal:packageBin
@@ -130,6 +147,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: 'sbt'
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+        with:
+          sbt-version: '1.10.5'
 
       - name: Build Windows MSI
         run: sbt windows:packageBin
