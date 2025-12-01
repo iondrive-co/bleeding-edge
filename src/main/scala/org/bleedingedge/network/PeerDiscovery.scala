@@ -97,15 +97,12 @@ class PeerDiscovery(
                   val port = portStr.toInt
 
                   // Ignore our own announcements
-                  logger.debug(s"Received announcement: peerId=$peerId, localPeerId=$localPeerId, equals=${peerId == localPeerId}")
                   if peerId != localPeerId then
                     val peerAddress = InetSocketAddress(packet.getAddress, port)
                     val peerInfo = PeerInfo(peerId, peerAddress, hostname)
 
                     logger.info(s"Discovered peer: ${peerInfo.displayName}")
                     onPeerDiscovered(peerInfo)
-                  else
-                    logger.debug(s"Ignoring own announcement from $hostname")
 
                 case _ =>
                   logger.warn(s"Received invalid announcement: $data")
@@ -141,7 +138,6 @@ class PeerDiscovery(
             try
               val packet = DatagramPacket(data, data.length, group, multicastPort)
               socket.send(packet)
-              logger.debug("Sent presence announcement")
 
               // Broadcast every 5 seconds
               Thread.sleep(5000)

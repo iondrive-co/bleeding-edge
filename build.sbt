@@ -31,7 +31,7 @@ val mainClassName = "org.bleedingedge.cli.BleedingEdgeCLI"
 Compile / mainClass := Some(mainClassName)
 
 // Common packaging metadata
-val packageMaintainer = "Miles Hampson <miles@example.com>"
+val packageMaintainer = "Miles <dm@iondrive.co>"
 val packageSummaryText = "Distributed P2P file synchronization"
 val packageDescriptionText = "Modern distributed peer-to-peer file synchronization system built with Scala 3"
 
@@ -52,7 +52,7 @@ Universal / maintainer := packageMaintainer
 
 // Debian packaging
 Debian / maintainer := packageMaintainer
-Debian / debianPackageDependencies := Seq("java17-runtime | java17-runtime-headless")
+Debian / debianPackageDependencies := Seq("openjdk-17-jre | openjdk-17-jre-headless")
 
 // RPM packaging
 Rpm / maintainer := packageMaintainer
@@ -60,7 +60,7 @@ Rpm / rpmVendor := "BleedingEdge Project"
 Rpm / rpmLicense := Some("BSD-2-Clause")
 
 // Windows packaging
-Windows / maintainer := "Miles Hampson"
+Windows / maintainer := "Miles"
 
 // Docker settings
 Docker / packageName := "bleeding-edge"

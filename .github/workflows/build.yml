@@ -26,7 +26,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
         with:
-          sbt-version: '1.10.5'
+          sbt-runner-version: '1.10.5'
 
       - name: Run tests
         run: sbt test
@@ -56,7 +56,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
         with:
-          sbt-version: '1.10.5'
+          sbt-runner-version: '1.10.5'
 
       - name: Build assembly JAR
         run: sbt assembly
@@ -86,7 +86,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
         with:
-          sbt-version: '1.10.5'
+          sbt-runner-version: '1.10.5'
 
       - name: Install packaging tools
         run: |
@@ -121,7 +121,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
         with:
-          sbt-version: '1.10.5'
+          sbt-runner-version: '1.10.5'
 
       - name: Build universal package
         run: sbt universal:packageBin
@@ -151,7 +151,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
         with:
-          sbt-version: '1.10.5'
+          sbt-runner-version: '1.10.5'
 
       - name: Build Windows MSI
         run: sbt windows:packageBin
