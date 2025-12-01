@@ -5,6 +5,7 @@ import org.bleedingedge.infrastructure.scheduling.Scheduler
 
 import java.net.*
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
 import scala.util.{Try, Using}
@@ -34,6 +35,7 @@ class PeerDiscovery(
 
   private val running = AtomicBoolean(false)
   private val localHostname = InetAddress.getLocalHost.getHostName
+  private val discoveredPeers = ConcurrentHashMap.newKeySet[UUID]()
 
   given scala.concurrent.ExecutionContext = scheduler.executionContext
 
@@ -62,6 +64,7 @@ class PeerDiscovery(
    */
   def stop(): Unit =
     if running.compareAndSet(true, false) then
+      discoveredPeers.clear()
       logger.info("Stopping peer discovery")
 
   /**
@@ -101,8 +104,10 @@ class PeerDiscovery(
                     val peerAddress = InetSocketAddress(packet.getAddress, port)
                     val peerInfo = PeerInfo(peerId, peerAddress, hostname)
 
-                    logger.info(s"Discovered peer: ${peerInfo.displayName}")
-                    onPeerDiscovered(peerInfo)
+                    // Only log and notify on first discovery
+                    if discoveredPeers.add(peerId) then
+                      logger.info(s"Discovered peer: ${peerInfo.displayName}")
+                      onPeerDiscovered(peerInfo)
 
                 case _ =>
                   logger.warn(s"Received invalid announcement: $data")

@@ -2,16 +2,8 @@
 
 A peer-to-peer file synchronization protocol stack, including an example implementation created by Claude Code.
 
-## Quick Start
-
-Start BleedingEdge in interactive mode to sync a directory:
-
 ```bash
-# If installed via package manager (.deb/.rpm/etc)
 bleeding-edge sync /path/to/directory
-
-# Or using the JAR directly
-java -jar bleeding-edge.jar sync /path/to/directory
 ```
 
 This will:
@@ -19,11 +11,11 @@ This will:
 2. Discover other BleedingEdge peers on the network
 3. Synchronize file changes bidirectionally
 
-### Configuration
+## Configuration
 
 BleedingEdge can be configured using HOCON format configuration files.
 
-#### Configuration File Example
+### Configuration File Example
 
 Create `.bleedingedge/config`:
 
@@ -51,7 +43,7 @@ daemon {
 }
 ```
 
-#### Configuration Options
+### Configuration Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -62,9 +54,9 @@ daemon {
 | `scheduler.thread-pool-size` | Int | 4 | Number of worker threads |
 | `daemon.enabled` | Boolean | false | Enable daemon mode |
 
-## Architecture
+# Architecture
 
-### Overview
+## Overview
 
 - Designed for parallel processing by modeling each layer as stateless functions that can run independently when data becomes available.
 - Real-time change detection and propagation
@@ -116,9 +108,8 @@ daemon {
 - Health monitoring and status reporting
 - Ensures consistency across peers
 
-### Data Model
+## Data Model
 
-**Core Types:**
 - `ResourceId`: Immutable file identifier
 - `LocationState`: Immutable directory state with hash
 - `Snapshot`: Point-in-time view of directory

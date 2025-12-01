@@ -44,12 +44,12 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
    * for continuous monitoring.
    *
    * @param basePath The directory to scan
-   * @param excludePattern Optional pattern to exclude files/directories (e.g., ".bleedingedge")
+   * @param excludePatterns Patterns to exclude files/directories (e.g., ".bleedingedge", "logs/")
    * @return List of LocationStates representing all files in the directory
    */
   def scanDirectory(
     basePath: Path,
-    excludePattern: String = ".bleedingedge"
+    excludePatterns: Seq[String] = Seq(".bleedingedge", "logs/", ".log")
   ): Try[List[LocationState]] = Try {
     import scala.jdk.StreamConverters.*
 
@@ -65,7 +65,7 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
       val states = Files.walk(basePath)
         .toScala(LazyList)
         .filter(p => Files.isRegularFile(p))
-        .filter(p => !p.toString.contains(excludePattern))
+        .filter(p => !excludePatterns.exists(pattern => p.toString.contains(pattern)))
         .flatMap { filePath =>
           Try {
             val relativePath = basePath.relativize(filePath).toString
@@ -87,16 +87,16 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
    *
    * @param basePath The directory to scan and monitor
    * @param onChange Callback invoked for each file state (initial + changes)
-   * @param excludePattern Optional pattern to exclude files/directories
+   * @param excludePatterns Patterns to exclude files/directories
    * @return Future that completes when monitoring stops
    */
   def scanAndMonitorDirectory(
     basePath: Path,
     onChange: LocationState => Unit,
-    excludePattern: String = ".bleedingedge"
+    excludePatterns: Seq[String] = Seq(".bleedingedge", "logs/", ".log")
   ): Future[Unit] = Future {
     // Perform initial scan
-    scanDirectory(basePath, excludePattern) match
+    scanDirectory(basePath, excludePatterns) match
       case scala.util.Success(states) =>
         logger.info(s"Reporting ${states.size} initial files")
         states.foreach(onChange)
@@ -105,7 +105,7 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
         logger.error(s"Failed to scan directory: ${e.getMessage}", e)
 
     // Start monitoring for changes (blocks until stopped)
-    scanDirectoryForChanges(basePath, onChange).value.get.get
+    scanDirectoryForChanges(basePath, onChange, excludePatterns).value.get.get
   }
 
   /**
@@ -113,18 +113,20 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
    *
    * @param dirPath The root directory to monitor (includes subdirectories)
    * @param onChange Callback invoked with LocationState for each file change
+   * @param excludePatterns Patterns to exclude files/directories
    * @return Future that completes when monitoring stops
    */
   def scanDirectoryForChanges(
     dirPath: Path,
-    onChange: LocationState => Unit
+    onChange: LocationState => Unit,
+    excludePatterns: Seq[String] = Seq(".bleedingedge", "logs/", ".log")
   ): Future[Unit] =
     scheduler.execute("file-monitor") {
       Using.resource(FileSystems.getDefault.newWatchService()) { watcher =>
         var watchKeys = Map.empty[WatchKey, Path]
 
         // Initial scan and setup - don't notify changes (snapshot already initialized)
-        watchKeys = loadResourcesAt(dirPath, dirPath, watchKeys, watcher, onChange, None, notifyChanges = false)
+        watchKeys = loadResourcesAt(dirPath, dirPath, watchKeys, watcher, onChange, None, notifyChanges = false, excludePatterns)
 
         logger.info(s"Starting monitoring of $dirPath")
 
@@ -142,12 +144,12 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
                   val e = event.asInstanceOf[WatchEvent[Path]]
                   val changedPath = keyPath.resolve(e.context())
                   logger.debug(s"Change detected at: $changedPath")
-                  watchKeys = loadResourcesAt(dirPath, changedPath, watchKeys, watcher, onChange, Some(key))
+                  watchKeys = loadResourcesAt(dirPath, changedPath, watchKeys, watcher, onChange, Some(key), notifyChanges = true, excludePatterns)
 
                 // Re-queue the key for more events
                 if !key.reset() then
                   logger.debug(s"Watch key at $keyPath invalid, removing watch")
-                  watchKeys = loadResourcesAt(dirPath, keyPath, watchKeys, watcher, onChange, Some(key))
+                  watchKeys = loadResourcesAt(dirPath, keyPath, watchKeys, watcher, onChange, Some(key), notifyChanges = true, excludePatterns)
 
               case None =>
                 logger.warn("Received event for unregistered watch key")
@@ -170,6 +172,7 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
    * @param watcher Watch service to register with
    * @param onChange Callback for state changes
    * @param existingKey Existing watch key for the path (if any)
+   * @param excludePatterns Patterns to exclude files/directories
    * @return Updated watch key mappings
    */
   private def loadResourcesAt(
@@ -179,10 +182,15 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
     watcher: WatchService,
     onChange: LocationState => Unit,
     existingKey: Option[WatchKey],
-    notifyChanges: Boolean = true
+    notifyChanges: Boolean = true,
+    excludePatterns: Seq[String] = Seq(".bleedingedge", "logs/", ".log")
   ): Map[WatchKey, Path] =
     val fileToHandle = pathToHandle.toFile
     var updatedKeys = currentKeys
+
+    // Check if this path should be excluded
+    if excludePatterns.exists(pattern => pathToHandle.toString.contains(pattern)) then
+      return updatedKeys
 
     // Handle directories
     if fileToHandle.isDirectory then
@@ -192,7 +200,7 @@ class FileSystemMonitor(scheduler: Scheduler) extends LazyLogging:
 
         // Recursively load all contained files
         for file <- containedFiles do
-          updatedKeys = loadResourcesAt(basePath, file.toPath, updatedKeys, watcher, onChange, existingKey, notifyChanges)
+          updatedKeys = loadResourcesAt(basePath, file.toPath, updatedKeys, watcher, onChange, existingKey, notifyChanges, excludePatterns)
 
         // Register watch on this directory
         val key = pathToHandle.register(

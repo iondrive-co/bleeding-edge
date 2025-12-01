@@ -184,11 +184,15 @@ class PeerConnection(
     if running.compareAndSet(true, false) || state.get() == ConnectionState.Connected then
       logger.info(s"Disconnecting from peer: ${peerInfo.displayName}")
 
-      // Send goodbye if connected
-      if isConnected then
-        Try {
-          sendMessage(NetworkMessage.Goodbye(localPeerId))
-        }
+      // Send goodbye if connected and socket is still open
+      socket.get().foreach { sock =>
+        if isConnected && !sock.isClosed then
+          Try {
+            outputStream.get().foreach { out =>
+              Serialization.writeNetworkMessage(out, NetworkMessage.Goodbye(localPeerId))
+            }
+          }
+      }
 
       // Close output stream first
       outputStream.getAndSet(None).foreach { out =>
